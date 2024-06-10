@@ -1,0 +1,688 @@
+---
+title: "Political Attitudes of the German population based on data from the European Social Survey"
+author: "Nanmanat Disayakamonpan"
+format:   
+  html:                     
+    standalone: true        # These are some YAML configurations which are not essential but you may play with:
+                            # standalone means that quarto renders to a html-file with a header 
+                            # and all css javascript needed
+    embed-resources: true   # The html will also embed all figures you produce 
+                            # (usually they would be in a directory). So differently from traditional html files
+                            # this html file would be self-contained. You could for example email it as one file 
+    code-fold: true         # We enable the code folding such that we only need to look at code if we want
+                            # More info at https://quarto.org/docs/output-formats/html-publishing.html
+    number-sections: true   # We number the sections
+---
+
+This analysis works with the dataset `ESS10_DE_selection` from the European Social Survey (ESS) which is a pan-European research infrastructure providing freely accessible data for academics, policymakers, civil society and the wider public. The ESS tracks the behaviours, attitudes, and beliefs of individuals across European countries. 
+
+# Data Overview and Preparation
+
+For this analysis, we will work on the dataset of Political Attitudes of the German population based on data from the European Social Survey (ESS). By now, there are 10 survey waves covering a period from 2002 to 2020. This analysis will only focus on the latest wave and a subset of the questions concerning some political attitudes among German citizens. 
+
+In particular, we consider the following items
+
+* **Item Variables and Questions**
+    + ***freehms***
+        - A question asks about opinions on what extent you agree or disagree, with each of the following statements: **"Gay men and lesbians should be free to live their own life as they wish"**, where 1 means you strongly agree and 5 means you strongly disagree. 
+    + ***euftf***
+        - A question asks about what number on the scale best describes your position about **"European Union: European unification go further or gone too far"**, where 0 means unification already has gone too far and 10 means unification goes further. 
+    + ***wrclmch***
+        - A question asks about **"how worried are you about climate change"**, where 1 means you are not worried at all and 5 means you are extremely worried. 
+    + ***gincdif***
+        - A question asks about what extent you agree or disagree with each of the following statements: **"The government should take measures to reduce differences in income levels"**, where 1 means you strongly agree and 5 means you strongly disagree.
+    + ***imueclt***
+        - This observation addresses the question **“Would you say that Germany’s cultural life is generally undermined or enriched by people coming to live here from other countries”**, where 0 means cultural life is undermined and 10 means cultural life is enriched. 
+    + ***lrscale***
+        - In politics people sometimes talk of 'left' and 'right'. This question asks about **"where would you place yourself on this scale"**, where 0 means the left and 10 means the right. 
+    + ***impcntr***
+        - This observation addresses the question **“To what extent do you think Germany should allow many/few immigrants from poorer countries outside Europe”**, where 1 means Germany should allow many to come and live here, and 4 means Germany should allow none of them.
+    + ***prtvfde2***
+        - Party voted for in last national election 2, Germany as you can see in the table below: 
+
+| Value in prtvfde2   | Political Party in Germany            |
+----------------------|---------------------------------------|
+| 1                   | Christian Democratic Union/Christian Social Union (CDU/CSU)                                        |
+| 2                   | Social Democratic Party (SPD)         |
+| 3                   | The Left (Die Linke)                  |
+| 4                   | Alliance 90/The Greens (Bündnis 90/Die Grünen)                                                       |
+| 5                   | Free Democratic Party (FDP)           |
+| 6                   | Alternative for Germany (AFD)         |
+
+```{python}
+#| label: packages-data
+#| echo: false
+import pandas as pd
+import numpy as np
+import seaborn as sns
+import matplotlib.pyplot as plt
+from sklearn.decomposition import PCA
+from sklearn.preprocessing import StandardScaler
+from sklearn.model_selection import train_test_split
+from sklearn.linear_model import LogisticRegression
+from sklearn.metrics import confusion_matrix
+from sklearn.metrics import roc_curve, auc
+from sklearn.metrics import roc_auc_score
+import warnings
+
+warnings.filterwarnings("ignore", category=FutureWarning, module="seaborn._oldcore")
+```
+
+```{python}
+#| label: load-datainfo
+#| echo: false
+essdata = pd.read_csv("data/ESS10_DE_selection.csv")
+#print(df.head())
+#print(df.info())
+#print(df.describe())
+```
+
+```{python}
+#| label: definemissingvalue
+#| echo: false
+# Replace missing values in prtvfde2
+essdata['prtvfde2'].replace([66, 77, 88, 99], pd.NA, inplace=True)
+
+# Replace missing values in lrscale
+essdata['lrscale'].replace([77, 88, 99], pd.NA, inplace=True)
+
+# Replace missing values in freehms
+essdata['freehms'].replace([7, 8, 9], pd.NA, inplace=True)
+
+# Replace missing values in euftf
+essdata['euftf'].replace([77, 88, 99], pd.NA, inplace=True)
+
+# Replace missing values in impcntr
+essdata['impcntr'].replace([7, 8, 9], pd.NA, inplace=True)
+
+# Replace missing values in impcntr
+essdata['imueclt'].replace([77, 88, 99], pd.NA, inplace=True)
+
+# Replace missing values in impcntr
+essdata['wrclmch'].replace([6, 7, 8, 9], pd.NA, inplace=True)
+```
+
+# Data Exploration
+
+## Characterising Voters
+
+### The distribution of left-right scale scores across major political parties in Germany
+In this analysis, I aim to explore the political orientation of voters based on the left-right scale (lrscale) and their respective political party affiliations (prtvfde2) in the European Social Survey (ESS) data. I will create a boxplot visualizing the distribution of left-right scale scores across major political parties, using distinct colors for each party to enhance clarity and understanding.
+
+```{python}
+#| label: leftrightscale
+#| echo: false
+filtered_data1 = essdata[~essdata['prtvfde2'].isin([66, 77, 88, 99]) & ~essdata['lrscale'].isin([77, 88, 99])].copy()
+
+# Drop rows with missing values in 'lrscale'
+filtered_data1.dropna(subset=['lrscale'], inplace=True)
+
+party_names = ["CDU/CSU (conservative)", "SPD (social democrat)", "Linke (Left)", "Grünen (Green)", "FDP (Liberals)", "AfD (right-wing populist)"]
+
+party_colors = {"CDU/CSU (conservative)": "black", "SPD (social democrat)": "red", "Grünen (Green)": "green", "Linke (Left)": "purple", "FDP (Liberals)": "yellow", "AfD (right-wing populist)": "blue"}
+
+filtered_data1['party'] = filtered_data1['prtvfde2'].map(dict(enumerate(party_names, 1)))
+
+plt.figure(figsize=(10, 5))
+sns.boxplot(x='lrscale', y='party', data=filtered_data1, palette=party_colors)
+plt.ylabel("Political Party")
+plt.xlabel("Left-Right Scale")
+plt.title("Number of left-right scale by party")
+plt.annotate('Source: European Social Survey (ESS)', 
+             xy=(0.5, -0.25), 
+             xycoords='axes fraction', 
+             ha='center', 
+             va='center', 
+             fontsize=10, 
+             color='gray')
+plt.show()
+```
+
+As you can see, the boxplot effectively illustrates the spread and central tendency of left-right scale scores for each political party.
+
+- **Parties on the left side (Die Linke, Grünen, SPD)** with the mean value of 2, 3, 4, respectively, indicate a left-leaning stance.
+
+- **Parties on the right side (CDU/CSU, FDP, AfD)** have higher mean values, indicating a right-leaning or conservative stance.
+    + CDU/CSU and FDP show overlap in their boxplots, suggesting some similarity in the left-right scale scores. This aligns with the broader political landscape, where both parties are positioned towards the center-right.
+
+    + The AfD boxplot is distinctly on the right side, further away from the center, with a mean value around 6. This indicates that individuals affiliated with AfD have a more pronounced right-wing populist orientation compared to CDU/CSU and FDP.
+
+### The distribution of opinions on European Unification across different political parties in Germany
+
+In this exploratory analysis, we aim to understand the distribution of opinions on European unification across different political parties in Germany. The boxplot below illustrates individuals' positions on the scale of European unification (0 to 10) grouped by the party they voted for in the last national election, providing insights into the varying perspectives within each political affiliation.
+
+```{python}
+#| label: europeanunion
+#| echo: false
+filtered_data2 = essdata[~essdata['prtvfde2'].isin([66, 77, 88, 99]) & ~essdata['euftf'].isin([77, 88, 99])].copy()
+
+# Drop rows with missing values in 'lrscale'
+filtered_data2.dropna(subset=['euftf'], inplace=True)
+
+party_names = ["CDU/CSU (conservative)", "SPD (social democrat)", "Linke (Left)", "Grünen (Green)", "FDP (Liberals)", "AfD (right-wing populist)"]
+
+party_colors = {"CDU/CSU (conservative)": "black", "SPD (social democrat)": "red", "Grünen (Green)": "green", "Linke (Left)": "purple", "FDP (Liberals)": "yellow", "AfD (right-wing populist)": "blue"}
+
+filtered_data2['party'] = filtered_data2['prtvfde2'].map(dict(enumerate(party_names, 1)))
+
+plt.figure(figsize=(10, 5))
+sns.boxplot(x='euftf', y='party', data=filtered_data2, palette=party_colors)
+plt.ylabel("Political Party")
+plt.xlabel("Go Further or Gone Too Far Scale")
+plt.title("Number of opinions on Europe Unification by party")
+plt.annotate('Source: European Social Survey (ESS)', 
+             xy=(0.5, -0.25), 
+             xycoords='axes fraction', 
+             ha='center', 
+             va='center', 
+             fontsize=10, 
+             color='gray')
+plt.show()
+```
+
+As you can see, the boxplot can capture the variability in opinions within each political party. The majority of respondents across all political parties tend to believe that European unification has gone too far. This is evident from the higher mean values on the scale. 
+
+- The consistency in mean values among the Christian Democratic Union/Christian Social Union (CDU/CSU), Social Democratic Party (SPD), and The Left (Die Linke) suggests a shared sentiment on European unification despite ideological differences.
+
+- The higher mean value of The Greens (Bündnis 90/Die Grünen) indicates a more positive view of European unification among its members.
+
+- The Free Democratic Party (FDP)'s moderate mean suggests a nuanced stance, while the Alternative for Germany (AFD)'s low mean reflects a distinct perspective favoring further European unification.
+
+## Data Exploration and Visualisation of Two Variables
+
+For this part, I dive into the dataset to explore two important observations —**imueclt**, reflecting views on cultural life, and **impcntr**, gauging attitudes toward immigrants from poorer nations. 
+
+**Variable Descriptions**
+
+- **imueclt**
+This observation addresses the question **“Would you say that Germany’s cultural life is generally undermined or enriched by people coming to live here from other countries”**, where 0 means cultural life is undermined and 10 means cultural life is enriched. 
+
+| Value in imueclt    | Country's cultural life undermined or enriched by immigrants                                           |
+----------------------|------------------------------------------|
+| 0                   | Cultural life undermined                 |
+| 1                   | 1                                        |
+| 2                   | 2                                        |
+| 3                   | 3                                        |
+| 4                   | 4                                        |
+| 5                   | 5                                        |
+| 6                   | 6                                        |
+| 7                   | 7                                        |
+| 8                   | 8                                        |
+| 9                   | 9                                        |
+| 10                  | Cultural life enriched                   |
+
+- **impcntr**
+This observation addresses the question **“To what extent do you think Germany should allow many/few immigrants from poorer countries outside Europe”**, where 1 means Germany should allow many to come and live here, and 4 means Germany should allow none of them.
+
+| Value in impcntr    | Allow many/few immigrants from poorer countries outside Europe                                         |
+----------------------|------------------------------------------|
+| 1                   | Allow many to come and live here         |
+| 2                   | Allow some                               |
+| 3                   | Allow a few                              |
+| 4                   | Allow none                               |
+| 9                   | No answer                                |
+
+### Scatter Plot Showing Connections between Immigration Perspectives (impcntr) vs. Cultural Attitude (imueclt)
+
+Through a scatter plot, I am investigating the potential relationships between cultural sentiments ('imueclt') and opinions on immigration ('impcntr'), seeking to unravel the dynamics at play within our dataset.
+
+```{python}
+#| label: scatterplot
+#| echo: false
+essdata_cleaned = essdata.dropna(subset=['impcntr', 'imueclt'])
+
+plt.figure(figsize=(10, 6))
+sns.scatterplot(x='impcntr', y='imueclt', data=essdata_cleaned, alpha=0.01)
+plt.xlabel('Allow immigrants from poorer countries')
+plt.ylabel('Cultural life undermined or enriched')
+plt.title('The relationships between cultural sentiments (‘imueclt’) and opinions on immigration (‘impcntr’)')
+plt.xticks(range(1, 5))  # Adjust the range
+plt.show()
+```
+
+The scatter plot may look uninformative because it seems that the variable 'impcntr' is categorical or ordinal, representing different levels of willingness to allow immigrants from poorer countries. However, the scatter plot treats 'impcntr' as a continuous variable on the x-axis, which may not accurately represent the underlying nature of the data.
+
+In a scatter plot, points are usually connected along both axes, assuming a continuous relationship between the variables. In this case, where 'impcntr' likely represents discrete categories, the points are scattered along the integer values on the x-axis without any meaningful connection between them.
+
+## Heatmap Showing Connection between Immigration Perspectives (impcntr) vs. Cultural Attitude (imueclt)
+
+Before diving into a heatmap, I will show you the pivot table that provides a comprehensive overview of the distribution of responses, organized by **the cultural attitudes (imueclt)** and **immigration perspectives (impcntr)** variables. Each cell in the table represents the count of responses corresponding to a specific combination of cultural attitudes and immigration perspectives, offering valuable insights into the patterns within the dataset.
+
+```{python}
+#| label: pivot_table
+#| echo: false
+pivot_table = essdata_cleaned.pivot_table(index='imueclt', columns='impcntr', aggfunc='size', fill_value=0)
+
+new_index_names = {
+    0: 'Cultural life undermined',
+    1: '1',
+    2: '2',
+    3: '3',
+    4: '4',
+    5: '5',
+    6: '6',
+    7: '7',
+    8: '8',
+    9: '9',
+    10: 'Cultural life enriched',
+    99: 'No answer'
+}
+
+pivot_table = pivot_table.rename(index=new_index_names)
+
+# Rename columns
+new_column_names = {
+    1: 'Allow many',
+    2: 'Allow some',
+    3: 'Allow a few',
+    4: 'Allow none',
+    9: 'No answer'
+}
+
+pivot_table = pivot_table.rename(columns=new_column_names)
+pivot_table
+```
+
+This heatmap illustrates the relationship between two categorical variables: **"imueclt"** representing ***cultural attitudes*** and **"impcntr"** representing ***immigration perspectives***. The values in the heatmap represent the frequency or count of responses corresponding to different combinations of cultural attitudes and immigration perspectives.
+
+```{python}
+#| label: heatmap
+#| echo: false
+fig, ax = plt.subplots(figsize=(12, 8))
+sns.heatmap(data=pivot_table, cmap='viridis')
+
+for i in range(len(pivot_table)):
+    for j in range(len(pivot_table.columns)):
+        plt.text(j + 0.5, i + 0.5, f'{pivot_table.iloc[i, j]:.0f}', ha='center', va='center', color='white', fontsize=10)
+
+plt.title("Heatmap of Responses for 'Allow immigrants' and 'Impact on cultural life'")
+plt.xlabel("Impact on Cultural Life by Immigrants")
+plt.ylabel("Allow Immigrants to Come and Live Here")
+plt.show()
+```
+
+As you can see in the heat map, I can interpret that there are **1070 responses** indicating a perception that **cultural life is enriched (rating of 5)**, and the preference is to allow some immigrants.
+
+Moreover, there is a high frequency in the **"Allow some"** and **"Allow many"** columns with 620 and 631 responses, respectively, suggesting that ***those who feel cultural life is undermined are more inclined to allow more immigrants***.
+
+On the contrary, The "Cultural life undermined" row shows a concentration in the **"Allow none"** and **"Allow a few"** columns with 150 and 206 responses, respectively, indicating that ***those who perceive cultural life as undermined are less likely to support allowing many immigrants***.
+
+### Correlation Coefficient of Two Variables between Immigration Perspectives (impcntr) vs. Cultural Attitude (imueclt)
+
+The key point of the correlation coefficient between **immigration perspectives ('impcntr')** and **cultural attitudes ('imueclt')** is to offer insights into the degree of association between individuals' perceptions of cultural life and their attitudes toward immigrants from economically disadvantaged countries, as you can see the result below.
+
+```{python}
+#| label: correlation-coeeficient
+#| echo: false
+correlation_coefficient = essdata_cleaned['imueclt'].corr(essdata_cleaned['impcntr'])
+
+print("The Correlation Coefficient is", round(correlation_coefficient * 100, 2), "%")
+```
+
+**A correlation coefficient of -59.13%** indicates a strong negative correlation between **immigration perspectives (impcntr)** and **cultural attitudes (imueclt)**. The negative sign means that as positive immigration perspectives increase, cultural attitudes tend to decrease.
+
+In practical terms, a negative correlation could means that people with positive attitudes toward immigrants are likely to have positive cultural attitudes. Conversely, those with a negative cultural outlook may lean towards restrictive attitudes toward immigrants.
+
+## Principle Component Analysis (PCA)
+
+In this analysis, I will do a Principle Component Analysis (PCA) of the political Attitudes in the European Social Survey and focus on the following items. 
+
+- **Cultural Life (imueclt):** Is it enriched or undermined by people from other countries?
+
+- **European Unification (euftf):** To what extent should the European Union unify further?
+
+- **Left-Right Scale (lrscale):** Where do individuals place themselves on the political spectrum?
+
+- **Climate Change Concern (wrclmch):** How worried are they about climate change?
+
+- **Income Equality (gincdif):** Do they believe in government measures to reduce income differences?
+
+- **Freedom for All (freehms):** Should gay men and lesbians be free to live their lives as they wish?
+
+- **Immigration Perspectives (impcntr):** How open are they to immigrants from poorer countries?
+
+To have more effective and meaningful visualization, PCA is one of the important parts for this analysis. 
+
+### PCA for Political Attitudes
+
+For this part, I will visually explore political attitudes through a scatter plot of the first and second principal components, where each point represents a respondent colored by their last election's chosen political party. 
+
+To visualize better, I set the following color scheme for each political party. 
+
+| Color  | Political Party (prtvfde2) in Germany                 |
+---------|-------------------------------------------------------|
+| black  | **CDU/CSU** (Christian Democratic Union/Christian Social Union)                 |
+| red    | **SPD** (Social Democratic Party)                     |
+| yellow | **Die Linke** (The Left)                              |
+| green  | **Bündnis 90/Die Grünen** (Alliance 90/The Green)     |
+| purple | **FDP** (Free Democratic Party)                       |
+| blue   | **AFD** (Alternative for Germany)                     |
+| grey   | **Andere Party** (Other Parties)                      |
+
+Arrows might reveal how specific attitudes influence the PC1-PC2 space, and the axis labels offer insights into the explained variance of each principal component, giving a peek into the diverse political landscape.
+
+```{python}
+#| label: preparedataforPCA
+#| echo: false
+data_for_pca = essdata.dropna(subset=["imueclt", "euftf", "lrscale", "wrclmch", "gincdif", "freehms", "impcntr", 'prtvfde2'], how='any', axis=0).copy()
+
+party_colors = {1: "black", 
+2: "red", 3: "purple", 4: "green", 5: "yellow", 6: "blue", 7:"grey"}
+
+data_for_pca['party_colors'] = data_for_pca['prtvfde2'].map(party_colors)
+
+data_for_pca = data_for_pca.dropna(subset=["party_colors"], how="any", axis=0)
+
+X = data_for_pca[["imueclt", "euftf", "lrscale", "wrclmch", "gincdif", "freehms", "impcntr"]]
+scaler = StandardScaler().fit(X)
+X_scaled = scaler.transform(X)
+```
+
+```{python}
+#| label: PCA1
+#| echo: false
+pca = PCA()
+principal_components = pca.fit_transform(X_scaled)
+
+pc_df = pd.DataFrame(data=principal_components[:, :2], columns=['PC1', 'PC2'])
+
+data_for_pca['party_colors'] = data_for_pca['prtvfde2'].map(party_colors)
+
+plt.figure(figsize=(10, 6))
+plot = sns.scatterplot(x=principal_components[:, 0], y=principal_components[:, 1], hue=data_for_pca['prtvfde2'], palette=party_colors, s=50, alpha=0.7)
+plt.title('PCA of Political Attitudes')
+plt.xlabel(f'PC1 (explained variance: {pca.explained_variance_ratio_[0]:.2f})')
+plt.ylabel(f'PC2 (explained variance: {pca.explained_variance_ratio_[1]:.2f})')
+
+# Optional: Add arrows for political attitudes
+for i, column in enumerate(X.columns):
+    arrow_length = 8
+    plt.arrow(0, 0, pca.components_[0, i] * arrow_length, pca.components_[1, i] * arrow_length, color='black', alpha=1)
+    plt.text(pca.components_[0, i] * arrow_length, pca.components_[1, i] * arrow_length, column, fontsize=12)
+
+plt.legend()
+legend_labels = ["CDU/CSU", "SPD", "Linke", "Grünen", "FDP", "AFD", "Andere Partei"]
+plt.legend(handles=plot.get_legend().legend_handles, labels=legend_labels, title="Party Voted For")
+plt.show()
+```
+
+As you can see from the scatter plot, we can conclude that PC1 and PC2 capture different patterns in the political attitudes related to each variable. In the scatter plot, the arrows and labels show the contribution of each variable to PC1 and PC2. The longer the arrow, the stronger the influence.
+
+**PC1 (explained variance: 0.41):**
+
+- PC1 represents a dimension in political attitudes that explains 41% of the total variability in the data. The variables with high positive loadings on PC1 `gincdif`, `lrsclae`, `freehms` and `impcntr`. We can see that `impcntr` contributes strongest positive loadings to this dimension. 
+
+- This suggests that PC1 summarizes a substantial portion of the variability present in the political attitude variables. A higher explained variance indicates that PC1 effectively captures patterns and trends in the data
+
+**PC2 (explained variance: 0.15):**
+
+- On the other hand, PC2 explains 19% of the total variance. As we can see, `gincdif` is the only variable that have very strong positive loading on PC2 and contributes the most to this dimension. The observations `euftf`, `lrscale`, and `imueclt` shows moderate positive loadings. Meanwhile, there are two variables which are `wrclmch` and `impcntr` showing negative loadings. 
+
+- While PC2 explains less variance than PC1, it still contributes significantly to understanding the variability in political attitudes.
+
+More importantly, `gincdif` and `lrsclae` variables pointing in the same direction are positively correlated with that principal component, while `imueclt` and `impcntr` variables pointing in the opposite direction are negatively correlated. 
+
+### Explained Variance
+
+Before diving into the visualization, let's gauge the landscape of explained variance across principal components. The upcoming plot will provide a roadmap, helping us discern how many principal components might adequately capture the diverse spectrum of respondents' political attitudes.
+
+```{python}
+#| label: explainedvariance
+#| echo: false
+plt.figure(figsize=(10, 6))
+PC_labels = {7: "PC1", 6: "PC2", 5: "PC3", 4: "PC4", 3: "PC5", 2: "PC6", 1: "PC7"}
+plt.xlim(0, len(PC_labels) + 1)
+plt.xticks(range(1, len(PC_labels) + 1), [PC_labels[i] for i in range(1, len(PC_labels) + 1)])
+plt.plot(np.arange(1, len(pca.explained_variance_ratio_) + 1), np.cumsum(pca.explained_variance_ratio_), marker='o', linestyle='-')
+plt.title('Explained Variance by Principal Components')
+plt.xlabel('Principal Components')
+plt.ylabel('Cumulative Explained Variance')
+plt.grid(True)
+plt.show()
+```
+
+The values of the cumulative explained variance shown on this plot for PC1 to PC7 provide insights into how much of the total variability in your data is captured by each principal component.
+
+As you can see from the graph, it can be concluded that the first few principal components (PC1 to PC3) capture a substantial portion of the variability in this data. These components represent the dominant patterns or factors that explain respondents' political attitudes.
+
+### Variable Loadings
+
+Before we visualize the vectors of the first three principal components, let's set the stage by qualitatively exploring what PC1, PC2, and PC3 represent in the context of variable loadings.
+
+```{python}
+#| label: variableloadings
+#| echo: false
+loadings = pca.components_[:3]
+
+loadings_df = pd.DataFrame(loadings, columns=X.columns, index=[f'PC{i + 1}' for i in range(3)])
+
+fig, axes = plt.subplots(1, 3, figsize=(15, 5))
+
+cmap = plt.get_cmap('viridis', len(X.columns))
+
+for i, pc in enumerate(loadings_df.index):
+    ax = axes[i]
+    colors = [cmap(j) for j in range(len(X.columns))]
+    loadings_df.loc[pc].plot(kind='barh', ax=ax, color=colors)  
+    ax.set_title(pc)
+sm = plt.cm.ScalarMappable(cmap=cmap, norm=plt.Normalize(0, len(X.columns)))
+sm.set_array([])
+cbar = plt.colorbar(sm, ax=axes, orientation='vertical', fraction=0.01, pad=0.1)
+cbar.set_label('Observations')
+plt.suptitle("Variable Loadings of PC1, PC2, and PC3")
+plt.show(close=None, block=None)
+```
+
+As the bar chart of variable loadings of PC1-PC3, we can conclude **PC1** as follows: 
+
+**Positive Correlation** 
+
+- More than a half of the variables on PC1 have positive loadings, particularly `impcntr` (0.455), `lrscale` (0.383), `freehms` (0.340), and `gincdif` (0.215). 
+
+**Negative Correlation**
+
+- There are also many variable with moderate negative correlations, mainly `imueclt` (-0.467), `euftf` (-0.368), and `wrclmch` (-0.356)
+
+In summary, PC1 seems to represent a dimension of political attitudes that involves a conservative stance on cultural enrichment, skepticism towards further European Union unification, right-leaning political placement, lower concern about climate change, support for government intervention to reduce income differences, and a liberal stance on freedom for gay men and lesbians.
+
+## Logistic Regression
+
+Embarking on the journey of predicting voting decisions based on political attitudes, our initial focus lies in discerning patterns that differentiate individuals inclined towards "left" parties (SPD, Die Linke, Die Grünen) from those aligned with "right" parties (CDU/CSU, FDP, AfD).
+
+### Wrangling and Preprocessing
+
+Before diving into data visualization, I will process the dataset by removing missing values and participants who didn't vote for specified parties. Then, we'll create a left_vote variable indicating left or non-left voting. The input matrix, X, representing political attitudes, will be scaled using StandardScaler. Here, let's proceed to visualize the results.
+
+```{python}
+#| label: wrangling-preprocessing
+#| echo: true
+# 1. Remove all participants with `NaN` values
+party_codes = [1, 2, 3, 4, 5, 6]
+essdata_cleaned = essdata.dropna(subset=["imueclt", "euftf", "lrscale", "wrclmch", "gincdif", "freehms", "impcntr"], how='any', axis=0)
+essdata_cleaned = essdata_cleaned[essdata_cleaned['prtvfde2'].isin(party_codes)]
+
+# 2.Create a dummy variable, `left_vote`
+left_parties = [2, 3, 4] 
+essdata_cleaned['left_vote'] = essdata_cleaned['prtvfde2'].isin(left_parties).astype(int)
+
+# 3.Input matrix `X` which contains political attitudes 
+X_columns = ["imueclt", "euftf", "lrscale", "wrclmch", "gincdif", "freehms", "impcntr"]
+X = essdata_cleaned[X_columns]
+y = essdata_cleaned['left_vote']
+
+# 4. Scale the data using StandardScaler
+scaler = StandardScaler()
+X_scaled = scaler.fit_transform(X)
+X_scaled = pd.DataFrame(X_scaled, columns=X_columns)
+```
+
+### Regression Model and Understanding the Model
+
+After splitting the data and training a logistic regression model on political attitudes, we'll visualize the predicted probabilities to vote for a left party using a boxplot. This plot will showcase how well the model's predictions align with the actual voting behavior of respondents in both the test and training datasets.
+```{python}
+#| label: regressionmodel
+#| echo: false
+X_train, X_test, y_train, y_test = train_test_split(X_scaled, y, test_size=0.2, random_state=42)
+
+log_reg = LogisticRegression()
+log_reg.fit(X_train, y_train)
+y_pred_proba_test = log_reg.predict_proba(X_test)[:, 1]
+
+essdata_cleaned['y_pred_proba_test'] = pd.Series(y_pred_proba_test, index=X_test.index)
+
+y_pred_proba = log_reg.predict_proba(X_scaled)[:, 1]
+
+essdata_cleaned['y_pred_proba'] = pd.Series(y_pred_proba, index=essdata_cleaned.index)
+
+combined_data = pd.concat([X_train, X_test])
+combined_data['Actual_Vote'] = pd.concat([y_train, y_test])
+
+plt.figure(figsize=(10, 6))
+sns.boxplot(x='Actual_Vote', y=essdata_cleaned['y_pred_proba'], data=combined_data)
+plt.xlabel('Actual Vote (0 = Not Vote for Left, 1 = Vote for Left)')
+plt.ylabel('Predicted Probability to Vote for a Left Party')
+plt.title('Boxplot of Predicted Probability to Vote for a Left Party')
+plt.show()
+```
+
+In the boxplot analysis, you can observe the mean values for predicted probabilities that provide insights into the model's performance and the distribution of predicted probabilities for each category. 
+
+We can interpret that a higher mean predicted probability for "Vote for left" aligns with the expectation that individuals with left-leaning political attitudes are more likely to vote for left parties.
+
+In conclusion, the model appears to perform well in predicting voting behavior based on political attitudes. The distinct difference in mean predicted probabilities between the two categories suggests that the model is effective in identifying individuals with a higher likelihood of voting for left parties.
+
+More importantly, it is crucial to look at **the coefficients** from the logistic regression model can provide insights into **the impact of predictor variables** on the likelihood of voting for a left party.
+
+```{python}
+#| label: predictorvariables
+#| echo: false
+log_reg.fit(X_train, y_train)
+
+coefficients = log_reg.coef_[0]
+
+coef_df = pd.DataFrame({'Variable': X.columns, 'Coefficient': coefficients})
+
+coef_df = coef_df.reindex(coef_df['Coefficient'].abs().sort_values(ascending=False).index)
+
+top_predictors = coef_df.head(3)
+print(top_predictors)
+```
+
+These findings provide valuable insights into the attitudinal factors influencing left-leaning voting decisions, allowing for a distinct understanding of voter behavior. As you can see, there are top-three predictor variables which are `lrscale`, `gincdif`, and `wrclmch` in this model. 
+
+- **The positive coefficient** for ***climate change concern*** aligns with expectations, suggesting that individuals who are more worried about climate change are more likely to vote for a left party.
+
+- **The negative coefficients** for ***income difference reduction*** and ***left-right political scale*** indicate that individuals with right-leaning political views and less agreement with government measures to reduce income differences are less likely to vote for a left party.
+
+### Prediction and Decision Making
+
+#### Predict Left Vote
+
+After predicting left votes in the test sample, comparing actual and predicted labels is crucial. The default threshold of 0.5 can be adjusted using y_pred_threshold90, providing insights into prediction variations based on different probability thresholds.
+
+```{python}
+#| label: predict-leftvote
+#| echo: false
+y_pred = log_reg.predict(X_test)
+
+y_pred_threshold90 = (y_pred_proba_test >= 0.9).astype(int)
+
+prediction_comparison = pd.DataFrame({
+    'Actual_Left_Vote': y_test,
+    'Predicted_Left_Vote_Threshold50': y_pred,
+    'Predicted_Left_Vote_Threshold90': y_pred_threshold90
+})
+
+print(prediction_comparison.head())
+```
+
+As you can see, the results from the comparison can be interpreted as follows: 
+
+**Actual vs. Default Predictions (Threshold 0.5)**
+
+- The default threshold (0.5) predicts 1 for many cases where the actual vote is 0, indicating potential false positives.
+
+- For example, for the first observation (index 1936), the actual vote is 1 (voted for the left), and the model predicts 1 with the default threshold. Meanwhole, for the second observation (index 8442), the actual vote is 0 (did not vote for the left), but the model predicts 1 with the default threshold.
+
+**Actual vs. Conservative Predictions (Threshold 0.9)**
+
+- The model becomes more conservative with a higher threshold. As a result, fewer instances are predicted as left voters. 
+
+- For example, in the first observation (index 1936), the prediction changes from 1 (default threshold) to 0 (threshold 0.9).
+Conclusion:
+
+In summary, the default threshold (0.5) might lead to more positive predictions, potentially including false positives.
+Whereas a higher threshold (0.9) results in more conservative predictions, reducing the number of positive predictions but potentially increasing prediction accuracy.
+
+#### Confusion Matrix
+
+Generating confusion matrices at various probability thresholds can provide more comprehensive assessment of the model's performance, focusing on optimizing specificity and sensitivity ratio to enhance decision-making for political attitude purposes. 
+
+* **Confusion Matrix Criteria:**
+    + **True Positive (TP):** Participants correctly predicted as left voters
+    + **True Negative (TN):** Participants correctly predicted as non-left voters
+    + **False Positive (FP):** Participants incorrectly predicted as left voters (Type I error)
+    + **False Negative (FN):** Participants incorrectly predicted as non-left voters (Type II error)
+
+* **In terms of specificity and sensitivity:**
+    + **Sensitivity (True Positive Rate or Recall)** is the ability to correctly identify left voters by TP / (TP + FN). 
+    + **Specificity (True Negative Rate)** is the ability to correctly identify non-left voters by TN / (TN + FP).
+
+```{python}
+#| label: confusionmatrix
+#| echo: false
+thresholds = [0.1, 0.25, 0.5, 0.75, 0.9]
+
+for threshold in thresholds:
+    y_pred = (y_pred_proba_test >= threshold).astype(int)
+    cm = confusion_matrix(y_test, y_pred)
+    cm_df = pd.DataFrame(cm, index=["Actual 0", "Actual 1"], columns=["Predicted 0", "Predicted 1"])
+
+    print(f"Confusion Matrix (Threshold {threshold}):")
+    print(cm_df)
+    print()
+```
+
+As you can see, the results of the confusion matrices at different probability thresholds offer insights into the model's performance. 
+
+In the context of our advertising campaign aimed at left voters, prioritizing the identification of true left voters is crucial. Therefore, focusing on sensitivity (the ability to correctly identify left voters) becomes the primary goal, while specificity (identifying non-left voters) is a secondary consideration.
+
+At a threshold of 0.1, the model achieves high sensitivity (640 true positives), effectively capturing a substantial number of left-leaning individuals. Although there is a notable false positive rate (402), representing non-left voters, this is deemed acceptable for our campaign objectives. In this scenario, the emphasis is on maximizing the reach to left voters, and a higher false positive rate is a reasonable trade-off.
+
+Therefore, the threshold of 0.1 is suitable for our broad-reaching campaign, aligning with the campaign's primary goal of targeting and engaging a large number of true left voters, even at the expense of including some non-left individuals.
+
+#### ROC-Curve
+
+Plotting the ROC curve using the actual votes and predicted probabilities for the test sample can visualize the trade-off between specificity and sensitivity. The curve illustrates the true-positive rate (correctly classified left voters) against the false-positive rate (incorrectly classified as left voters among non-left voters).
+
+```{python}
+#| label: ROC-curve 
+#| echo: false
+fpr, tpr, thresholds = roc_curve(y_test, y_pred_proba_test)
+
+roc_auc = auc(fpr, tpr)
+
+plt.figure(figsize=(8, 8))
+plt.plot(fpr, tpr, color='darkorange', lw=2, label=f'ROC curve (AUC = {roc_auc:.2f})')
+plt.plot([0, 1], [0, 1], color='navy', lw=2, linestyle='--', label='Random')
+plt.xlabel('False Positive Rate (1 - Specificity)')
+plt.ylabel('True Positive Rate (Sensitivity)')
+plt.title('Receiver Operating Characteristic (ROC) Curve')
+plt.legend(loc='lower right')
+plt.show()
+```
+
+As you can see, the ROC curve is situated above the random line and can be concluded that the model performs better than random chance. The ROC curve suggest that the logistic regression model has good performance in distinguishing between voters and non-voters of the left party.
+
+#### AUC Matrix
+```{python}
+#| label: AUC-matrix
+#| echo: false
+auc_score = roc_auc_score(y_test, y_pred_proba_test)
+
+print(f'AUC Score: {auc_score:.2f}')
+```
+
+The higher the AUC score, the better the model's ability to correctly classify individuals. In this case, a score of 0.84 indicates that the model has a strong ability to distinguish between the two classes (voting for left or not voting for left).
+
+In summary, A steep ROC curve and a high AUC score of 0.84 suggests that this logistic regression model is performing very well in discriminating between left and non-left voters, making it a reliable tool for predicting political preferences based on the selected features.
