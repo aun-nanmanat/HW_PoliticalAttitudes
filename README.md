@@ -2,7 +2,7 @@
 ## Project Overview
 Conducted a comprehensive analysis of political attitudes among German citizens using data from the European Social Survey (ESS). Focused on key political variables to understand the ideological landscape and voter behavior.
 
-### Data
+## Data
 
 This repo contains a subset of the [European Social Survey (ESS)](https://www.europeansocialsurvey.org/) data. The ESS tracks the behaviours, attitudes, and beliefs of individuals across European countries. By now, there are 10 survey waves covering a period from 2002 to 2020. We will work only with the latest wave and restrict ourselves to a subset of the questions concerning some political attitudes among German citizens. 
 
@@ -19,7 +19,7 @@ In particular, we consider the following items
 | `impcntr` | Allow many/few immigrants from poorer countries outside Europe |
 | `prtvfde2` | Party voted for in last national election 2, Germany |
 
-### Analytical Methods
+## Analytical Methods
 - **Data Preparation:** Cleaned and processed data, handled missing values, and selected relevant variables.
 
 - **Exploratory Data Analysis (EDA):**
@@ -43,7 +43,7 @@ In particular, we consider the following items
 
   - Analyzed model performance using confusion matrices, ROC curves, and AUC scores.
 
-### Results and Insights
+## Results and Insights
 - **Left-Right Scale:** Demonstrated distinct political orientations among different parties, with Die Linke, Grünen, and SPD on the left, and CDU/CSU, FDP, and AfD on the right.
 
 - **European Unification:** Found consistent mean values indicating shared sentiments across most parties, with the Greens showing a more positive view.
@@ -54,10 +54,10 @@ In particular, we consider the following items
 
 - **Logistic Regression Performance:** Achieved a high AUC score of 0.84, indicating strong model performance in distinguishing between left and non-left voters.
 
-### Visualizations
+## Visualizations
 Created detailed visualizations including boxplots, scatter plots, heatmaps, PCA biplots, and ROC curves to enhance the interpretability of findings.
 
-### Skills Demonstrated: 
+## Skills Demonstrated: 
 - Data cleaning and preparation
 
 - Exploratory Data Analysis (EDA)
@@ -70,11 +70,5 @@ Created detailed visualizations including boxplots, scatter plots, heatmaps, PCA
 
 - Statistical analysis and interpretation
 
-### Conclusion
+## Conclusion
 This project showcases my ability to handle complex datasets, apply various analytical techniques, and derive meaningful insights from data. It highlights my proficiency in using Python for data analysis and my capability to communicate findings effectively through visualizations.
-
-#### Correlation
-
-Finally, report the correlation coefficient of the two variables and briefly interpret it.
-
-
